@@ -1,0 +1,206 @@
+---
+title: "ESS Lab 4 Doc"
+format: 
+  html:
+    self-contained: true
+editor: visual
+author: Andrew Zimbelman
+execute:
+ echo: true 
+---
+
+```{r}
+remotes::install_github("lter/lterdatasampler")
+library(tidyverse)
+library(ggpubr)
+library(lterdatasampler)
+library(car)
+library(visdat)
+library(dplyr)
+
+```
+
+```{r}
+
+data = and_vertebrates
+glimpse(and_vertebrates)
+vis_dat(and_vertebrates)
+data|>
+filter(species == 'Cutthroat trout')|>
+  drop_na(unittype)|>
+  count(unittype)
+clean_data <- data|>
+filter(species == 'Cutthroat trout', unittype %in% c('C','SC','P'))|>
+  drop_na(unittype,section)
+  
+clean_table <- table(clean_data$species, clean_data$unittype)
+
+chisq.test(clean_table)
+
+clean_data|>  # This bar plot is just for fun :) 
+ggbarplot( x = 'unittype', y = 'species',
+          color = 'section',
+          theme = 'linedraw') + 
+          labs (title = "Species of Trout per channel type")
+
+
+clean_data |>
+  drop_na(weight_g)|>
+  ggpubr::ggviolin( x = 'section', y = 'weight_g', 
+             add = 'boxplot',
+             color = 'section',
+             theme =  'linedraw')
+CC_weight <- clean_data |>
+              filter(section == 'CC')|>
+              pull(weight_g)
+OG_weight <- clean_data |>
+              filter(section == 'OG')|>
+              pull(weight_g)
+ var.test(CC_weight, OG_weight)
+
+ggpubr::ggarrange(ggpubr::gghistogram(CC_weight, main = "Clear Cut"), 
+                  ggpubr::gghistogram(OG_weight, main = "Old Growth"))
+
+var.test(log(CC_weight), log(OG_weight))
+
+t.test(log(clean_data$weight_g) ~ clean_data$section, var.equal = TRUE) # This is the version with equal variance
+t.test((clean_data$weight_g) ~ clean_data$section, var.equal = FALSE) #non equal variance group has different values
+```
+
+## Part 1 excersises
+
+### 1.
+
+```{r}
+excersise_data = data|>
+  filter(species == ('Coastal giant salamander'))|>
+  drop_na(unittype, section) 
+data_table <- table(excersise_data$unittype, excersise_data$section)
+chisq.test(data_table)
+```
+
+Conducting the Chi-squared test tells us that there is a significant relatinoship between forest type. and channel unit for the Coastal Giant Salamander Species, this is because our p-value is less then 0.05 which means we can reject our null hypothesis that there is no relationship
+
+### 2.
+
+```{r}
+CC_salamander_weight <- excersise_data|>
+                        filter(section == 'CC')|>
+                        pull(weight_g)
+OG_salamander_weight <- excersise_data |>
+                        filter(section == 'OG')|>
+                        pull(weight_g)
+var.test(CC_salamander_weight, OG_salamander_weight)
+# the p-value is less then 0.05 suggesting variance is not equal 
+var.test(log(CC_salamander_weight),log(OG_salamander_weight))
+# this data has more equal variance 
+t.test(log(excersise_data$weight_g)~ excersise_data$section , var.equal = TRUE)
+```
+
+I used a t test to determine if there was a relationship between the biomass of Coastal Giant Salamander species and Clear Cut & Old Growth forest types. The p value was less then 0.05 which suggests that there is correlation between Coastal Giant Salamander Biomass & the Forest Type.
+
+### 3.
+
+```{r}
+cutthroat_data <- data|>
+  filter(species == 'Cutthroat trout')|>
+  drop_na(length_1_mm, weight_g)
+
+clean_cutthroat <- cutthroat_data |>
+  slice_sample(n = 5000)
+shapiro.test(clean_cutthroat$length_1_mm)
+#p value suggests data is skewed for this variable
+shapiro.test(clean_cutthroat$weight_g)
+#p value suggets data is skewed for this variable also 
+shapiro.test(log(clean_cutthroat$length_1_mm))
+shapiro.test(log(clean_cutthroat$weight_g))
+#data is still skewed with log, so we will use a spearman test
+cor.test(clean_cutthroat$length_1_mm, clean_cutthroat$weight_g, method = 'spearman')
+#p value < 0.05 showing a significant relationship 
+length = log(clean_cutthroat$length_1_mm)
+weight = log(clean_cutthroat$weight_g)
+
+ 
+```
+
+I used shapiro-wilks tests to determine if the raw cleaned data was normally distributed which it wasn't, it also wasn't when using the log fucntion within the shapiro wilks test, with this in mine i used a correlation test with the spearman method which gave me an extremely low p-value that was less then 0.05 which tells me that there is corelation between length in mm and weight in grams.
+
+## Part 2 excersises
+
+```{r}
+count(pie_crab, site)
+#13 sites in data, most data is in BC, CT, DB,JC,NIB
+data2 <- pie_crab
+data2|>
+ggboxplot(x = 'site', y = 'size',
+          col = 'site')+
+  geom_jitter(size=0.25)
+```
+
+### 1.
+
+```{r}
+nested_data <- pie_crab|>
+  nest(data = -site)|>
+  mutate(Shapiro = map(data, ~shapiro.test(.x$size)),
+         n = map_dbl(data,nrow), 
+    glance_shapiro = map(Shapiro, broom::glance))|>
+                      unnest(glance_shapiro)
+flextable::flextable(dplyr::select(nested_data, site,n,statistic,p.value))
+#we are interestd in those with p value higher then 0.01 for a normal distribution 
+
+
+(crab_aov = aov(size ~ site, data= pie_crab))
+
+leveneTest(size ~ site, data = pie_crab)
+  
+oneway.test(size ~ site, data = pie_crab, var.equal = FALSE)
+
+anova_crab <- pie_crab|>
+  filter(site %in% c('DB','GTM','PIE'))
+leveneTest(size ~ site, data = anova_crab)
+aov_crab = aov(size ~ site, data = anova_crab)
+TukeyHSD(aov_crab)
+anova_crab|>
+  arrange(-latitude)
+anova_crab|>
+  ggboxplot(x = 'site', y = 'size', 
+            col = 'site') +
+           geom_jitter(size = 0.25)
+```
+
+After doing the TukeyHSD test, it was determined that Site DB & site GTM's mean's were statistically different from the others. This tells us that these sites have a statistically significant influence on size of crab species body size
+
+### 2.
+
+```{r}
+lm_shell_size <- lm(size ~ water_temp_sd, data = data2)
+summary(lm_shell_size)
+# our p value is less then 0.05 which means that water temp has an effect on shell size 
+data2|>
+ggscatter(x = 'water_temp_sd', y = 'size',
+          add = "reg.line") +
+          labs(
+            title = "Water Temperature Effect on Shell Size")
+
+#cool
+```
+
+Using a regression to determine if there was correlation between water temp and shell size, it was determined there was not. When creating a plot with a line of best fit this is reflected, as we see almost no increase or decrease with the regression line
+
+### 3.
+
+```{r}
+
+
+multi_reg <- lm(size ~ latitude + air_temp_sd + water_temp_sd, data = data2)
+summary(multi_reg)
+# looks like only latitude has an effect on shell size 
+data2|>
+  select(latitude, air_temp_sd, water_temp_sd)|>
+  cor()
+```
+
+Using a multi linear regression. It was determined that the only variable between air_temp_sd, water_temp_sd, and latitude was latitude, however. It was determined that water_temp_sd was correlated with latitude, this makes sense, as when latitude changes the amount of solar radiation also changes which can impact temperature, therefore. It makes sense to believe that the impacts of changing air and water temp by latitude can impact carapace width
+
+print
